@@ -87,10 +87,12 @@ async def receive_lead(payload: LeadPayload) -> JSONResponse:
         job = PipelineJob(
             lead_name=payload.name,
             lead_company=payload.company,
-            lead_industry=payload.industry,
-            pain_point=payload.pain_point,
+            lead_industry=payload.industry or None,
+            pain_point=payload.pain_point or None,
             funnel_stage=payload.funnel_stage,
-            target_channels=payload.target_channel,
+            target_channels=payload.target_channel or [],
+            # Pre-populate script when user provides manual prompts (skips Claude step)
+            script=payload.manual_script.model_dump() if payload.manual_script else None,
             status="queued",
         )
         db.add(job)

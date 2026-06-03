@@ -24,7 +24,7 @@ app_celery.conf.update(
 
 
 @app_celery.task(name="run_pipeline", bind=True, max_retries=0)
-def run_pipeline(self, job_id: str) -> None:  # noqa: ARG001 (self unused but required by bind=True)
+def run_pipeline(self, job_id: str) -> None:  # noqa: ARG001
     asyncio.run(_run_pipeline_async(job_id))
 
 
@@ -46,30 +46,37 @@ async def _run_pipeline_async(job_id: str) -> None:
         job.status = "running"
         await db.commit()
 
-        lead_name = job.lead_name
-        lead_company = job.lead_company or ""
+        lead_name      = job.lead_name
+        lead_company   = job.lead_company or ""
         target_channels: List[str] = job.target_channels or []
 
         try:
-            # 1. Generate script via Claude
-            from app.models.lead import LeadPayload
+            # ── Step 1: Script ──────────────────────────────────────────────
+            # job.script is pre-populated when the user provided manual prompts.
+            # If it is None, Claude generates it.
+            if job.script is None:
+                from app.models.lead import LeadPayload
 
-            lead_payload = LeadPayload(
-                name=job.lead_name,
-                company=job.lead_company or "",
-                industry=job.lead_industry or "",
-                pain_point=job.pain_point or "",
-                funnel_stage=job.funnel_stage or "awareness",  # type: ignore[arg-type]
-                target_channel=target_channels,  # type: ignore[arg-type]
-            )
-            script = await generate_script(lead_payload)
-            job.script = script
-            await db.commit()
+                lead_payload = LeadPayload(
+                    name=job.lead_name,
+                    company=job.lead_company or "",
+                    industry=job.lead_industry or "",
+                    pain_point=job.pain_point or "",
+                    funnel_stage=job.funnel_stage or "awareness",  # type: ignore[arg-type]
+                    target_channel=target_channels,  # type: ignore[arg-type]
+                )
+                script = await generate_script(lead_payload)
+                job.script = script
+                await db.commit()
+            else:
+                script = job.script
 
-            # 2. Generate clips sequentially
+            # ── Step 2 + 3: Clips → Stitch ─────────────────────────────────
             clip_uris: List[str] = []
             for scene in script.get("scenes", []):
-                operation_name = await submit_clip(scene["veo_prompt"], scene.get("duration_seconds", 8))
+                operation_name = await submit_clip(
+                    scene["veo_prompt"], scene.get("duration_seconds", 8)
+                )
                 gcs_uri = await poll_until_done(operation_name, timeout=600)
                 clip_uris.append(gcs_uri)
 
@@ -77,28 +84,30 @@ async def _run_pipeline_async(job_id: str) -> None:
             job.status = "stitching"
             await db.commit()
 
-            # 3. Stitch and upload
             signed_url = await stitch_and_upload(str(job.id), clip_uris)
             job.final_video_url = signed_url
-            job.status = "publishing"
             await db.commit()
 
-            # 4. Publish to channels
-            publish_results = await publish_all(
-                target_channels,
-                signed_url,
-                script.get("video_title", "Marketing Video"),
-            )
+            # ── Step 4: Publish (optional) ──────────────────────────────────
+            publish_results: dict = {}
+            if target_channels:
+                job.status = "publishing"
+                await db.commit()
 
-            # 5. Notify Slack
-            await notify_completion(
-                job_id=str(job.id),
-                lead_name=lead_name,
-                company=lead_company,
-                status="completed",
-                channels=publish_results,
-                signed_url=signed_url,
-            )
+                publish_results = await publish_all(
+                    target_channels,
+                    signed_url,
+                    script.get("video_title", "Marketing Video"),
+                )
+
+                await notify_completion(
+                    job_id=str(job.id),
+                    lead_name=lead_name,
+                    company=lead_company,
+                    status="completed",
+                    channels=publish_results,
+                    signed_url=signed_url,
+                )
 
             job.status = "completed"
             job.completed_at = datetime.now(timezone.utc)
@@ -110,7 +119,6 @@ async def _run_pipeline_async(job_id: str) -> None:
             job.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
-            # Best-effort failure notification
             try:
                 await notify_completion(
                     job_id=str(job.id),

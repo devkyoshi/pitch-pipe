@@ -4,3 +4,9 @@ CLAUDE.md
 .history
 .venv
 .env
+node_modules
+dist/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp

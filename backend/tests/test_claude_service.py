@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,13 +12,13 @@ VALID_SCRIPT = {
         {
             "order": 1,
             "narration": "Struggling with slow onboarding? You are not alone.",
-            "veo_prompt": "Wide cinematic shot of a frustrated professional at a modern desk, cool blue lighting, shallow depth of field.",
+            "veo_prompt": "Wide cinematic shot of a frustrated professional at a modern desk, cool blue lighting.",
             "duration_seconds": 8,
         },
         {
             "order": 2,
             "narration": "Our platform cuts onboarding time by 60 percent.",
-            "veo_prompt": "Close-up of a laptop screen showing a sleek dashboard, warm golden lighting, rack focus.",
+            "veo_prompt": "Close-up of a laptop screen showing a sleek dashboard, warm golden lighting.",
             "duration_seconds": 8,
         },
         {
@@ -30,7 +30,7 @@ VALID_SCRIPT = {
         {
             "order": 4,
             "narration": "Start your free trial today.",
-            "veo_prompt": "Clean product logo reveal on a white background, subtle lens flare, centered composition.",
+            "veo_prompt": "Clean product logo reveal on a white background, subtle lens flare.",
             "duration_seconds": 8,
         },
     ],
@@ -47,61 +47,65 @@ LEAD = LeadPayload(
 )
 
 
-def _make_mock_response(text: str) -> MagicMock:
-    content_block = MagicMock()
-    content_block.text = text
+def _mock_gemini_response(text: str) -> MagicMock:
     response = MagicMock()
-    response.content = [content_block]
+    response.text = text
     return response
 
 
 @pytest.mark.anyio
 async def test_generate_script_success():
-    mock_create = AsyncMock(return_value=_make_mock_response(json.dumps(VALID_SCRIPT)))
+    mock_model = MagicMock()
+    mock_model.generate_content.return_value = _mock_gemini_response(json.dumps(VALID_SCRIPT))
 
-    with patch("app.services.claude_service.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_client.messages.create = mock_create
-        mock_cls.return_value = mock_client
-
+    with patch("app.services.claude_service._get_model", return_value=mock_model):
         result = await generate_script(LEAD)
 
     assert result["video_title"] == VALID_SCRIPT["video_title"]
     assert len(result["scenes"]) == 4
-    mock_create.assert_called_once()
 
 
 @pytest.mark.anyio
 async def test_generate_script_retries_on_bad_json():
-    bad_response = _make_mock_response("not valid json at all")
-    good_response = _make_mock_response(json.dumps(VALID_SCRIPT))
+    mock_model = MagicMock()
+    mock_model.generate_content.side_effect = [
+        _mock_gemini_response("not valid json"),
+        _mock_gemini_response("still not json"),
+        _mock_gemini_response(json.dumps(VALID_SCRIPT)),
+    ]
 
-    mock_create = AsyncMock(side_effect=[bad_response, bad_response, good_response])
-
-    with patch("app.services.claude_service.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_client.messages.create = mock_create
-        mock_cls.return_value = mock_client
-
-        with patch("app.services.claude_service.asyncio.sleep", AsyncMock()):
-            result = await generate_script(LEAD)
+    with (
+        patch("app.services.claude_service._get_model", return_value=mock_model),
+        patch("app.services.claude_service.asyncio.sleep"),
+    ):
+        result = await generate_script(LEAD)
 
     assert result["video_title"] == VALID_SCRIPT["video_title"]
-    assert mock_create.call_count == 3
+    assert mock_model.generate_content.call_count == 3
 
 
 @pytest.mark.anyio
 async def test_generate_script_raises_after_3_failures():
-    bad_response = _make_mock_response("{{not json}}")
-    mock_create = AsyncMock(return_value=bad_response)
+    mock_model = MagicMock()
+    mock_model.generate_content.return_value = _mock_gemini_response("{{not json}}")
 
-    with patch("app.services.claude_service.anthropic.AsyncAnthropic") as mock_cls:
-        mock_client = MagicMock()
-        mock_client.messages.create = mock_create
-        mock_cls.return_value = mock_client
+    with (
+        patch("app.services.claude_service._get_model", return_value=mock_model),
+        patch("app.services.claude_service.asyncio.sleep"),
+    ):
+        with pytest.raises(ScriptGenerationError):
+            await generate_script(LEAD)
 
-        with patch("app.services.claude_service.asyncio.sleep", AsyncMock()):
-            with pytest.raises(ScriptGenerationError):
-                await generate_script(LEAD)
+    assert mock_model.generate_content.call_count == 3
 
-    assert mock_create.call_count == 3
+
+@pytest.mark.anyio
+async def test_generate_script_strips_markdown_fences():
+    fenced = f"```json\n{json.dumps(VALID_SCRIPT)}\n```"
+    mock_model = MagicMock()
+    mock_model.generate_content.return_value = _mock_gemini_response(fenced)
+
+    with patch("app.services.claude_service._get_model", return_value=mock_model):
+        result = await generate_script(LEAD)
+
+    assert result["video_title"] == VALID_SCRIPT["video_title"]

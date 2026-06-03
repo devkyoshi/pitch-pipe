@@ -45,8 +45,9 @@ An event-driven backend service that converts incoming sales leads into personal
 ## Prerequisites
 
 - Python 3.10+
+- Docker (for Redis)
 - PostgreSQL running locally (DB: `leadgen-db`, user: `devuser`, pass: `devpass`)
-- Redis running locally on port 6379
+- Redis running via Docker on port 6379
 - FFmpeg installed (`brew install ffmpeg` on macOS)
 - A GCP project with Vertex AI Veo 3 access (see below)
 - A GCS bucket for video storage
@@ -64,7 +65,21 @@ git clone <repo-url>
 cd backend
 ```
 
-### 2. Install dependencies
+### 2. Start Redis (Docker)
+
+```bash
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+Other Redis commands:
+```bash
+docker stop redis      # stop
+docker start redis     # restart (keeps data)
+docker rm -f redis     # remove entirely
+docker logs redis      # view logs
+```
+
+### 3. Install dependencies
 
 ```bash
 make install
@@ -72,7 +87,7 @@ make install
 
 Creates a `.venv` virtualenv and installs all packages from `requirements.txt`.
 
-### 3. Configure environment
+### 4. Configure environment
 
 ```bash
 make env
@@ -80,7 +95,7 @@ make env
 
 Copies `.env.example` → `.env` (skipped if `.env` already exists). Open `.env` and fill in your API keys — DB credentials are pre-filled for the local Postgres instance.
 
-### 4. Place your GCP service account key
+### 5. Place your GCP service account key
 
 ```bash
 cp /path/to/your/service_account.json ./service_account.json
@@ -91,13 +106,13 @@ The service account needs these IAM roles:
 - `roles/storage.objectAdmin` — GCS read/write
 - `roles/iam.serviceAccountTokenCreator` — signed URL generation
 
-### 5. Run database migrations
+### 6. Run database migrations
 
 ```bash
 make migrate
 ```
 
-### 6. Start the API server (terminal 1)
+### 7. Start the API server (terminal 1)
 
 ```bash
 make api
@@ -105,13 +120,13 @@ make api
 
 FastAPI starts on [http://localhost:8000](http://localhost:8000).
 
-### 7. Start the Celery worker (terminal 2)
+### 8. Start the Celery worker (terminal 2)
 
 ```bash
 make worker
 ```
 
-### 8. Verify the service is running
+### 9. Verify the service is running
 
 ```bash
 curl http://localhost:8000/health
@@ -195,7 +210,8 @@ pytest --cov=app tests/
 
 | Variable | Description |
 |---|---|
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude |
+| `GEMINI_API_KEY` | Google Gemini API key — get one free at [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| `GEMINI_MODEL` | Gemini model to use (default: `gemini-2.0-flash`) |
 | `GOOGLE_PROJECT_ID` | GCP project ID |
 | `GOOGLE_REGION` | Vertex AI region (default: `us-central1`) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON (default: `/app/service_account.json`) |

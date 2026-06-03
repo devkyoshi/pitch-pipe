@@ -9,6 +9,23 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
+# Job summary (list view)
+# ---------------------------------------------------------------------------
+
+
+class JobSummary(BaseModel):
+    job_id:          UUID = Field(..., description="Unique job ID.")
+    status:          str  = Field(..., description="Current pipeline status.")
+    lead_name:       str  = Field(..., description="Name of the lead.")
+    lead_company:    Optional[str] = Field(None)
+    target_channels: List[str]     = Field(default_factory=list)
+    final_video_url: Optional[str] = Field(None)
+    error_message:   Optional[str] = Field(None)
+    created_at:      Optional[datetime] = Field(None)
+    completed_at:    Optional[datetime] = Field(None)
+
+
+# ---------------------------------------------------------------------------
 # Webhook
 # ---------------------------------------------------------------------------
 

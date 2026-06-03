@@ -1,7 +1,12 @@
+"""
+Script generation via Google Gemini (google-genai SDK).
+Kept as claude_service.py so existing imports don't change.
+"""
 import asyncio
 import json
 
-import anthropic
+from google import genai
+from google.genai import types
 
 from app.config import settings
 from app.models.lead import LeadPayload
@@ -38,8 +43,36 @@ Return ONLY a valid JSON object - no markdown, no preamble:
 }}"""
 
 
+def _get_client() -> genai.Client:
+    return genai.Client(api_key=settings.GEMINI_API_KEY)
+
+
+def _call_gemini(prompt: str) -> str:
+    """Synchronous Gemini call — run in executor to stay non-blocking."""
+    client = _get_client()
+    response = client.models.generate_content(
+        model=settings.GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=_SYSTEM_PROMPT,
+            temperature=0.7,
+            max_output_tokens=1024,
+        ),
+    )
+    return response.text.strip()
+
+
+def _clean_json(raw: str) -> str:
+    """Strip markdown code fences Gemini sometimes adds."""
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return raw.strip()
+
+
 async def generate_script(lead: LeadPayload) -> dict:
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     prompt = _USER_PROMPT_TEMPLATE.format(
         name=lead.name,
         company=lead.company,
@@ -48,19 +81,15 @@ async def generate_script(lead: LeadPayload) -> dict:
         funnel_stage=lead.funnel_stage,
     )
 
+    loop = asyncio.get_event_loop()
     last_error: Exception | None = None
+
     for attempt in range(3):
         if attempt > 0:
-            await asyncio.sleep(2**attempt)
+            await asyncio.sleep(2 ** attempt)
         try:
-            response = await client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=1024,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = response.content[0].text.strip()
-            script = json.loads(raw)
+            raw = await loop.run_in_executor(None, _call_gemini, prompt)
+            script = json.loads(_clean_json(raw))
             if "scenes" not in script or "video_title" not in script:
                 raise ScriptGenerationError("Missing required fields in script JSON")
             return script
