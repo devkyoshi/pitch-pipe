@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { LeadPayload, WebhookResponse, PipelineJob } from '../types'
+import type { LeadPayload, WebhookResponse, PipelineJob, JobSummary } from '../types'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? '',
@@ -14,6 +14,20 @@ export async function submitLead(payload: LeadPayload): Promise<WebhookResponse>
 
 export async function getJob(jobId: string): Promise<PipelineJob> {
   const { data } = await api.get<PipelineJob>(`/jobs/${jobId}`)
+  return data
+}
+
+export async function retryJob(jobId: string): Promise<WebhookResponse> {
+  const { data } = await api.post<WebhookResponse>(`/jobs/${jobId}/retry`)
+  return data
+}
+
+export async function listJobs(params?: {
+  status?: string
+  limit?: number
+  offset?: number
+}): Promise<JobSummary[]> {
+  const { data } = await api.get<JobSummary[]>('/jobs', { params })
   return data
 }
 

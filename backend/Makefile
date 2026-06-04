@@ -1,4 +1,4 @@
-.PHONY: help install env api worker migrate migrate-down migrate-create test test-file lint format
+.PHONY: help install env redis redis-stop redis-logs api worker migrate migrate-down migrate-create test test-file lint format
 
 PYTHON     := python3
 PIP        := pip3
@@ -12,6 +12,9 @@ help:
 	@echo ""
 	@echo "  make install          Create venv and install dependencies"
 	@echo "  make env              Copy .env.example → .env (skip if .env exists)"
+	@echo "  make redis            Start Redis container on :6379"
+	@echo "  make redis-stop       Stop and remove Redis container"
+	@echo "  make redis-logs       Tail Redis container logs"
 	@echo "  make api              Start FastAPI dev server on :8000"
 	@echo "  make worker           Start Celery worker"
 	@echo "  make migrate          Run all pending Alembic migrations"
@@ -40,6 +43,19 @@ env:
 	fi
 
 # ── Services ─────────────────────────────────────────────────────────────────
+
+redis:
+	@if docker ps -a --format '{{.Names}}' | grep -q '^redis$$'; then \
+		docker start redis; \
+	else \
+		docker run -d --name redis -p 6379:6379 redis:7-alpine; \
+	fi
+
+redis-stop:
+	docker stop redis && docker rm redis
+
+redis-logs:
+	docker logs -f redis
 
 api:
 	$(ACTIVATE) && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

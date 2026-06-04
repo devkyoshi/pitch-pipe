@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { CircleNotch } from '@phosphor-icons/react'
+import { CircleNotch, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { useJobPoller } from '../hooks/useJobPoller'
 import { PipelineStages } from '../components/PipelineStages'
 import { ScriptViewer } from '../components/ScriptViewer'
 import { VideoResult } from '../components/VideoResult'
+import { retryJob } from '../lib/api'
 import type { LeadPayload, JobStatus } from '../types'
 
 const STATUS_MESSAGES: Record<JobStatus, string> = {
@@ -34,10 +35,17 @@ interface MonitorPageProps {
 }
 
 export function MonitorPage({ jobId, lead, onReset }: MonitorPageProps) {
-  const { job, error } = useJobPoller(jobId)
-  const startRef        = useRef(Date.now())
-  const status          = (job?.status ?? 'queued') as JobStatus
-  const isTerminal      = status === 'completed' || status === 'failed'
+  const { job, error }    = useJobPoller(jobId)
+  const startRef           = useRef(Date.now())
+  const status             = (job?.status ?? 'queued') as JobStatus
+  const isTerminal         = status === 'completed' || status === 'failed'
+  const canRetry           = status === 'failed' || status === 'completed'
+  const [retrying, setRetrying] = useState(false)
+
+  async function handleRetry() {
+    setRetrying(true)
+    try { await retryJob(jobId) } finally { setRetrying(false) }
+  }
 
   return (
     <motion.div
@@ -84,6 +92,29 @@ export function MonitorPage({ jobId, lead, onReset }: MonitorPageProps) {
                 <CircleNotch size={12} style={{ animation: 'spin-slow 1s linear infinite' }} />
                 <Elapsed startTime={startRef.current} />
               </div>
+            )}
+            {canRetry && (
+              <button
+                onClick={handleRetry}
+                disabled={retrying}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 7,
+                  background: 'transparent',
+                  border: '1px solid rgba(200,127,26,0.25)',
+                  color: retrying ? 'var(--color-dim)' : 'var(--color-accent)',
+                  fontSize: '0.75rem',
+                  cursor: retrying ? 'default' : 'pointer',
+                  fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', gap: '0.35rem',
+                  transition: 'color 130ms ease, border-color 130ms ease',
+                }}
+                onMouseEnter={e => { if (!retrying) { e.currentTarget.style.borderColor = 'rgba(200,127,26,0.5)' } }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(200,127,26,0.25)' }}
+              >
+                <ArrowCounterClockwise size={12} style={retrying ? { animation: 'spin-slow 1s linear infinite' } : undefined} />
+                {retrying ? 'Retrying…' : 'Retry'}
+              </button>
             )}
             <button
               onClick={onReset}

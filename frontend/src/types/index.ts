@@ -58,6 +58,15 @@ export interface PipelineJob {
   completed_at:    string | null
 }
 
+export interface JobSummary {
+  job_id:       string
+  status:       JobStatus
+  lead_name:    string
+  lead_company: string | null
+  created_at:   string | null
+  completed_at: string | null
+}
+
 export interface WebhookResponse {
   job_id: string
   status: 'queued'

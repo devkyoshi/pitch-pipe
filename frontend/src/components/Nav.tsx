@@ -1,6 +1,6 @@
-interface NavProps { onReset: () => void }
+interface NavProps { onReset: () => void; onHistory: () => void }
 
-export function Nav({ onReset }: NavProps) {
+export function Nav({ onReset, onHistory }: NavProps) {
   return (
     <header style={{
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
@@ -33,6 +33,19 @@ export function Nav({ onReset }: NavProps) {
         </button>
 
         <div style={{ display: 'flex', gap: '1.75rem', alignItems: 'center' }}>
+          <button
+            onClick={onHistory}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontSize: '0.78rem', color: 'var(--color-muted)',
+              fontFamily: 'inherit',
+              transition: 'color 140ms ease',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-ink)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-muted)')}
+          >
+            History
+          </button>
           <a
             href="http://localhost:8000/docs"
             target="_blank"
